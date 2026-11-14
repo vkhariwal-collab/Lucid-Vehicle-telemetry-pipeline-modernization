@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "battery_telemetry.v1.json",
+  "title": "Battery telemetry sample (input, topic telemetry.battery.v1, key = VIN)",
+  "type": "object",
+  "required": ["event_id", "vin", "event_ts_ms", "ingest_ts_ms", "cell_temp_c", "soc_pct", "power_kw", "energy_kwh", "lat", "lon"],
+  "properties": {
+    "event_id": {"type": "string"}, "vin": {"type": "string", "x-classification": "PII-identifier"},
+    "event_ts_ms": {"type": "integer"}, "ingest_ts_ms": {"type": "integer"},
+    "cell_temp_c": {"type": "number", "description": "-128.0 = sensor fault sentinel"},
+    "soc_pct": {"type": "number"}, "power_kw": {"type": "number"},
+    "energy_kwh": {"type": "number", "description": "cumulative per charging session; resets to 0"},
+    "lat": {"type": "number", "x-classification": "precise-location"}, "lon": {"type": "number", "x-classification": "precise-location"}
+  }
+}

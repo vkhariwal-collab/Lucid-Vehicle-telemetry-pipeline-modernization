@@ -1,0 +1,9 @@
+# Stage 2: one consumer (e.g. warranty) is switched to the shadow topic behind a feature flag; others stay on Spark output. Gate: 7 days 0 parity mismatches, 0 duplicates.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: battery-agg-rs
+data:
+  OUTPUT_TOPIC: "telemetry.battery-window-agg.v1.shadow"
+  TRANSACTIONAL_ID: "battery-agg-rs-shadow-0"
+  GROUP_ID: "battery-agg-rs-shadow"

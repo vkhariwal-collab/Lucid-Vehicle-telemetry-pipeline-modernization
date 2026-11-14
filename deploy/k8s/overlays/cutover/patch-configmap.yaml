@@ -1,0 +1,9 @@
+# Stage 3: Spark job stopped first, then Rust writes the real topic (consumers unchanged). Rollback: stop Rust, restart Spark from its checkpoint.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: battery-agg-rs
+data:
+  OUTPUT_TOPIC: "telemetry.battery-window-agg.v1"
+  TRANSACTIONAL_ID: "battery-agg-rs-0"
+  GROUP_ID: "battery-agg-rs"

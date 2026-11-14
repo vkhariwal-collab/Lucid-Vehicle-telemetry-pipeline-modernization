@@ -1,0 +1,30 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: battery-agg-rs
+  labels: { app: battery-agg-rs, part-of: telemetry }
+spec:
+  replicas: 1   # one transactional.id per replica; scale by partition-pinned replicas (see ADR 0001)
+  strategy: { type: Recreate }   # never two writers with the same transactional.id
+  selector: { matchLabels: { app: battery-agg-rs } }
+  template:
+    metadata: { labels: { app: battery-agg-rs, part-of: telemetry } }
+    spec:
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 30
+      securityContext: { runAsNonRoot: true, seccompProfile: { type: RuntimeDefault } }
+      containers:
+        - name: app
+          image: registry.example.com/telemetry/battery-agg-rs:0.1.0
+          args: ["run"]
+          envFrom: [{ configMapRef: { name: battery-agg-rs } }]
+          env:
+            - name: VIN_TOKEN_KEY
+              valueFrom: { secretKeyRef: { name: battery-agg-rs, key: vin-token-key } }
+          resources:
+            requests: { cpu: 250m, memory: 128Mi }
+            limits: { memory: 512Mi }
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: [ALL] }

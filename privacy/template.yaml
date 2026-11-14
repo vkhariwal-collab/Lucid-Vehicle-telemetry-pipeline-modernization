@@ -1,0 +1,18 @@
+# Privacy template for telemetry stream processors (synthetic demo).
+# Reviewed ONCE; every job built on the shared crate inherits it. A job needs a new
+# review only if it adds a field classified precise-location or PII-identifier to an output.
+version: 1
+classifications:
+  vin: PII-identifier
+  lat: precise-location
+  lon: precise-location
+rules:
+  P1_location_coarsening: "lat/lon rounded to 2 decimals (~1 km) before entering state, changelog or output"
+  P2_logs: "logs never contain VIN or location; only HMAC-SHA256 vin_token (privacy::LogFields has no such fields)"
+  P3_dead_letter: "DLQ stores error, payload hash, length, vin_token; never raw payload, VIN or location"
+  P4_retention: "output 7 days; DLQ 3 days; changelog compacted"
+  P5_access: "VIN allowed in output topic only for approved consumers (service, warranty, OTA) via ACL"
+enforcement:
+  - "unit tests: privacy::tests (DLQ, log fields, rounding)"
+  - "golden parity proves output content is unchanged vs legacy"
+  - "Devin playbook (AGENTS.md) forbids new log fields or outputs with classified data without review"

@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "battery_window_agg.v1.json",
+  "title": "5-minute battery window aggregate (output, topic telemetry.battery-window-agg.v1, key = VIN)",
+  "type": "object",
+  "required": ["vin", "window_start_ms", "window_end_ms", "events", "avg_cell_temp_c", "max_cell_temp_c", "min_soc_pct", "max_power_kw", "energy_kwh", "last_lat", "last_lon", "thermal_alert"],
+  "properties": {
+    "vin": {"type": "string"}, "window_start_ms": {"type": "integer"}, "window_end_ms": {"type": "integer"},
+    "events": {"type": "integer", "minimum": 1}, "avg_cell_temp_c": {"type": "number"}, "max_cell_temp_c": {"type": "number"},
+    "min_soc_pct": {"type": "number"}, "max_power_kw": {"type": "number"}, "energy_kwh": {"type": "number"},
+    "last_lat": {"type": "number", "multipleOf": 0.01, "x-classification": "coarse-location"},
+    "last_lon": {"type": "number", "multipleOf": 0.01, "x-classification": "coarse-location"},
+    "thermal_alert": {"type": "boolean"}
+  },
+  "additionalProperties": false
+}

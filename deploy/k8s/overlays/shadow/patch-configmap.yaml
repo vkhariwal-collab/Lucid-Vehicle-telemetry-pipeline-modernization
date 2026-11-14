@@ -1,0 +1,9 @@
+# Stage 1: Rust writes to the shadow topic; Spark remains the producer of the real topic. Parity job compares both continuously.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: battery-agg-rs
+data:
+  OUTPUT_TOPIC: "telemetry.battery-window-agg.v1.shadow"
+  TRANSACTIONAL_ID: "battery-agg-rs-shadow-0"
+  GROUP_ID: "battery-agg-rs-shadow"

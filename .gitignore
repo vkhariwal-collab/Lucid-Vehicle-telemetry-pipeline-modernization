@@ -1,0 +1,5 @@
+services/battery-agg-rs/target/
+legacy/spark-jobs/target/
+legacy/spark-jobs/project/target/
+reports/*.jsonl
+__pycache__/

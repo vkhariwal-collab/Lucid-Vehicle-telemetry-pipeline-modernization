@@ -1,0 +1,7 @@
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: battery-agg-rs
+spec:
+  maxUnavailable: 1
+  selector: { matchLabels: { app: battery-agg-rs } }
