@@ -6,12 +6,12 @@
 ## Behaviour (in evaluation order)
 | # | Rule | Legacy code | Rust port |
 |---|---|---|---|
-| 1 | Drop rows with null `vin`, `event_id` or `event_ts_ms` (malformed JSON parses to nulls) | `transform` filter 1 | serde error → **DLQ** (intentional, TQ-04) |
+| 1 | Drop rows with null `vin`, `event_id` or `event_ts_ms` (malformed JSON parses to nulls) | `transform` filter 1 | serde error → **DLQ** (intentional, TQ-04). Missing, `null` or wrong-typed **measurements** are read as null like Spark's PERMISSIVE reader: the row is counted, the field is skipped by avg/min/max | 
 | 2 | Drop late events: `ingest_ts_ms − event_ts_ms > 600 000` (exactly 600 000 is kept) | filter 2 | `agg.rs` `MAX_LATENESS_MS` |
-| 3 | De-duplicate on `event_id`, **after** the late filter | `dropDuplicates("event_id")` | per-window seen-set (duplicates share `event_ts`) |
+| 3 | De-duplicate on `event_id`, **after** the late filter | `dropDuplicates("event_id")` | per-partition `event_id` index across all VINs/windows (open windows + closed ones for 1 h); first copy in ingest order wins. Same `event_id` on two VINs in different input partitions is not deduplicated |
 | 4 | Window = `floor(event_ts_ms / 300 000) × 300 000` (5-min tumbling, event time) | `window_start_ms` column | `div_euclid` |
-| 5 | Per (VIN, window): count, avg/max cell temp, min SoC, max power, `energy = max − min`, last location by `(event_ts_ms, event_id)` | `groupBy.agg` | `WindowState` |
-| 6 | Location rounded to 2 decimals, **HALF_UP on the shortest decimal form** (Spark `round`) | `F.round(lat, 2)` | `privacy::round2_half_up` |
+| 5 | Per (VIN, window): count, avg/max cell temp, min SoC, max power, `energy = max − min`, last location by `(event_ts_ms, event_id)` | `groupBy.agg` | `WindowState`; an aggregate over only nulls is null and **omitted from the JSON** (as Spark does), `thermal_alert` too |
+| 6 | Location rounded to 2 decimals, **HALF_UP on the shortest decimal form** (Spark `round`) | `F.round(lat, 2)` | `privacy::round2_half_up` (no `-0.0`: BigDecimal has no negative zero) |
 | 7 | `thermal_alert = max_cell_temp_c ≥ 55.0` | select | `THERMAL_ALERT_C` |
 | 8 | Streaming sink: `outputMode("update")`, so each micro-batch re-emits partial window values | `StreamingMain` | **final value once** (TQ-05) |
 

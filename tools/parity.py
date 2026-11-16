@@ -12,7 +12,9 @@ EXACT = ["vin", "window_start_ms", "window_end_ms", "events", "thermal_alert"]
 FLOAT = ["avg_cell_temp_c", "max_cell_temp_c", "min_soc_pct", "max_power_kw", "energy_kwh", "last_lat", "last_lon"]
 
 def close(a, b):
-    return abs(a - b) <= 1e-9 * max(abs(a), abs(b), 1.0)
+    if a is None or b is None:
+        return a is b  # Spark omits aggregates over only-null inputs
+    return abs(a - b) <= 1e-9 * max(abs(a), abs(b), 1.0) and str(a).startswith("-") == str(b).startswith("-")
 
 def load(p):
     with open(p) as f:
@@ -31,7 +33,7 @@ def main():
     missing, extra = sorted(set(gm) - set(cm)), sorted(set(cm) - set(gm))
     diffs = []
     for k in sorted(set(gm) & set(cm)):
-        bad = [f for f in EXACT if gm[k][f] != cm[k][f]] + [f for f in FLOAT if not close(gm[k][f], cm[k][f])]
+        bad = [f for f in EXACT if gm[k].get(f) != cm[k].get(f)] + [f for f in FLOAT if not close(gm[k].get(f), cm[k].get(f))]
         if bad:
             diffs.append((k, bad))
     last, order_violations = {}, 0
@@ -44,7 +46,7 @@ def main():
     lines = [f"# {a.title}", "", f"- Golden windows (legacy Spark): {len(g)}", f"- Candidate records: {len(c)}",
              f"- **Matching windows: {matched}/{len(g)}**", f"- Missing: {len(missing)} · Extra: {len(extra)} · Field mismatches: {len(diffs)}",
              f"- Duplicate windows: {dups} · Per-VIN ordering violations: {order_violations}",
-             f"- Float tolerance: relative 1e-9", "", f"**Result: {'PASS' if ok else 'FAIL'}**"]
+             f"- Float tolerance: relative 1e-9 (sign must match, so -0.0 != 0.0; absent == null)", "", f"**Result: {'PASS' if ok else 'FAIL'}**"]
     for k, bad in diffs[:5]:
         lines.append(f"- mismatch {k[0][-6:]}@{k[1]}: {', '.join(bad)}")
     out = "\n".join(lines) + "\n"

@@ -4,7 +4,7 @@
 use crate::model::{Event, WindowAgg};
 use crate::privacy::round2_half_up;
 use serde::{Deserialize, Serialize};
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 pub const WINDOW_MS: i64 = 300_000;
 pub const MAX_LATENESS_MS: i64 = 600_000;
@@ -21,49 +21,64 @@ pub type WindowKey = (i64, String);
 pub struct WindowState {
     events: i64,
     sum_temp: f64,
-    max_temp: f64,
-    min_soc: f64,
-    max_power: f64,
-    min_energy: f64,
-    max_energy: f64,
+    n_temp: i64,
+    max_temp: Option<f64>,
+    min_soc: Option<f64>,
+    max_power: Option<f64>,
+    min_energy: Option<f64>,
+    max_energy: Option<f64>,
     last_ts: i64,
     last_id: String,
-    last_lat: f64,
-    last_lon: f64,
+    last_lat: Option<f64>,
+    last_lon: Option<f64>,
     seen: BTreeSet<String>,
 }
 
+/// Spark `max`/`min`: nulls are ignored; the result is null only if every input is null.
+fn fold(acc: Option<f64>, x: Option<f64>, pick: fn(f64, f64) -> f64) -> Option<f64> {
+    match (acc, x) {
+        (Some(a), Some(b)) => Some(pick(a, b)),
+        (a, b) => a.or(b),
+    }
+}
+
 impl WindowState {
-    fn new(e: &Event) -> Self {
+    fn new() -> Self {
         WindowState {
             events: 0,
             sum_temp: 0.0,
-            max_temp: f64::MIN,
-            min_soc: f64::MAX,
-            max_power: f64::MIN,
-            min_energy: f64::MAX,
-            max_energy: f64::MIN,
+            n_temp: 0,
+            max_temp: None,
+            min_soc: None,
+            max_power: None,
+            min_energy: None,
+            max_energy: None,
             last_ts: i64::MIN,
             last_id: String::new(),
-            last_lat: 0.0,
-            last_lon: 0.0,
-            seen: BTreeSet::from([e.event_id.clone()]),
+            last_lat: None,
+            last_lon: None,
+            seen: BTreeSet::new(),
         }
     }
 
     fn add(&mut self, e: &Event) {
+        self.seen.insert(e.event_id.clone());
         self.events += 1;
-        self.sum_temp += e.cell_temp_c; // legacy quirk TQ-03: -128.0 sensor sentinel is averaged in
-        self.max_temp = self.max_temp.max(e.cell_temp_c);
-        self.min_soc = self.min_soc.min(e.soc_pct);
-        self.max_power = self.max_power.max(e.power_kw);
-        self.min_energy = self.min_energy.min(e.energy_kwh);
-        self.max_energy = self.max_energy.max(e.energy_kwh);
+        if let Some(t) = e.cell_temp_c {
+            self.sum_temp += t; // legacy quirk TQ-03: -128.0 sensor sentinel is averaged in
+            self.n_temp += 1;
+        }
+        self.max_temp = fold(self.max_temp, e.cell_temp_c, f64::max);
+        self.min_soc = fold(self.min_soc, e.soc_pct, f64::min);
+        self.max_power = fold(self.max_power, e.power_kw, f64::max);
+        self.min_energy = fold(self.min_energy, e.energy_kwh, f64::min);
+        self.max_energy = fold(self.max_energy, e.energy_kwh, f64::max);
+        // Spark: max(struct(event_ts, event_id, lat, lon)) -> location of the latest event, even if null.
         if (e.event_ts_ms, e.event_id.as_str()) > (self.last_ts, self.last_id.as_str()) {
             self.last_ts = e.event_ts_ms;
             self.last_id = e.event_id.clone();
-            self.last_lat = round2_half_up(e.lat);
-            self.last_lon = round2_half_up(e.lon);
+            self.last_lat = e.lat.map(round2_half_up);
+            self.last_lon = e.lon.map(round2_half_up);
         }
     }
 
@@ -73,14 +88,15 @@ impl WindowState {
             window_start_ms: start,
             window_end_ms: start + WINDOW_MS,
             events: self.events,
-            avg_cell_temp_c: self.sum_temp / self.events as f64,
+            avg_cell_temp_c: (self.n_temp > 0).then(|| self.sum_temp / self.n_temp as f64),
             max_cell_temp_c: self.max_temp,
             min_soc_pct: self.min_soc,
             max_power_kw: self.max_power,
-            energy_kwh: self.max_energy - self.min_energy, // legacy quirk TQ-02: counter reset
+            // legacy quirk TQ-02: counter reset
+            energy_kwh: self.max_energy.zip(self.min_energy).map(|(hi, lo)| hi - lo),
             last_lat: self.last_lat,
             last_lon: self.last_lon,
-            thermal_alert: self.max_temp >= THERMAL_ALERT_C,
+            thermal_alert: self.max_temp.map(|t| t >= THERMAL_ALERT_C),
         }
     }
 }
@@ -89,7 +105,8 @@ impl WindowState {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum WindowEntry {
     Open(WindowState),
-    Closed,
+    /// Emitted window; keeps its event ids so later resends are still deduplicated.
+    Closed(BTreeSet<String>),
 }
 
 /// Per-partition watermark and counters, persisted as one small changelog record.
@@ -113,7 +130,10 @@ pub type Changes = (PartitionMeta, Vec<(WindowKey, Option<WindowEntry>)>);
 #[derive(Debug, Clone, Default)]
 pub struct PartitionState {
     windows: BTreeMap<WindowKey, WindowState>,
-    closed: BTreeSet<WindowKey>,
+    closed: BTreeMap<WindowKey, BTreeSet<String>>,
+    /// event_id -> window it was counted in, for every open and remembered closed window.
+    /// Spark's `dropDuplicates("event_id")` is not scoped to a VIN or window.
+    ids: HashMap<String, WindowKey>,
     meta: PartitionMeta,
     emit_from_ms: Option<i64>,
     dirty: BTreeSet<WindowKey>,
@@ -144,25 +164,19 @@ impl PartitionState {
         let key = (start, e.vin.clone());
         if self.emit_from_ms.is_some_and(|f| start < f) {
             m.before_emit_from += 1;
-        } else if self.closed.contains(&key)
+        } else if self.closed.contains_key(&key)
             || start + WINDOW_MS + MAX_LATENESS_MS + CLOSED_RETENTION_MS <= m.ingest_watermark
         {
             m.closed_dropped += 1; // window already emitted: never emit it twice
+        } else if self.ids.contains_key(&e.event_id) {
+            m.duplicates += 1;
         } else {
-            match self.windows.get_mut(&key) {
-                Some(w) if w.seen.contains(&e.event_id) => m.duplicates += 1,
-                Some(w) => {
-                    w.seen.insert(e.event_id.clone());
-                    w.add(e);
-                    self.dirty.insert(key);
-                }
-                None => {
-                    let mut w = WindowState::new(e);
-                    w.add(e);
-                    self.windows.insert(key.clone(), w);
-                    self.dirty.insert(key);
-                }
-            }
+            self.ids.insert(e.event_id.clone(), key.clone());
+            self.windows
+                .entry(key.clone())
+                .or_insert_with(WindowState::new)
+                .add(e);
+            self.dirty.insert(key);
         }
         self.finalize(false)
     }
@@ -179,16 +193,17 @@ impl PartitionState {
             let (key, w) = entry.remove_entry();
             out.push(w.finish(&key.1, key.0));
             self.dirty.insert(key.clone());
-            self.closed.insert(key);
+            self.closed.insert(key, w.seen);
         }
-        while self
-            .closed
-            .first()
-            .is_some_and(|k| k.0 + WINDOW_MS + MAX_LATENESS_MS + CLOSED_RETENTION_MS <= wm)
-        {
-            if let Some(k) = self.closed.pop_first() {
-                self.dirty.insert(k);
+        while let Some(entry) = self.closed.first_entry() {
+            if entry.key().0 + WINDOW_MS + MAX_LATENESS_MS + CLOSED_RETENTION_MS > wm {
+                break;
             }
+            let (k, seen) = entry.remove_entry();
+            for id in seen {
+                self.ids.remove(&id);
+            }
+            self.dirty.insert(k);
         }
         out
     }
@@ -213,8 +228,7 @@ impl PartitionState {
             .map(|k| {
                 let entry = match self.windows.get(&k) {
                     Some(w) => Some(WindowEntry::Open(w.clone())),
-                    None if self.closed.contains(&k) => Some(WindowEntry::Closed),
-                    None => None,
+                    None => self.closed.get(&k).cloned().map(WindowEntry::Closed),
                 };
                 (k, entry)
             })
@@ -224,16 +238,22 @@ impl PartitionState {
 
     /// Applies one changelog window record (later records for a key replace earlier ones).
     pub fn restore_window(&mut self, key: WindowKey, entry: Option<WindowEntry>) {
-        self.windows.remove(&key);
-        self.closed.remove(&key);
-        match entry {
-            Some(WindowEntry::Open(w)) => {
-                self.windows.insert(key, w);
+        let old = match self.windows.remove(&key) {
+            Some(w) => Some(w.seen),
+            None => self.closed.remove(&key),
+        };
+        for id in old.into_iter().flatten() {
+            self.ids.remove(&id);
+        }
+        let seen = match entry {
+            Some(WindowEntry::Open(w)) => self.windows.entry(key.clone()).or_insert(w).seen.clone(),
+            Some(WindowEntry::Closed(seen)) => {
+                self.closed.entry(key.clone()).or_insert(seen).clone()
             }
-            Some(WindowEntry::Closed) => {
-                self.closed.insert(key);
-            }
-            None => {}
+            None => return,
+        };
+        for id in seen {
+            self.ids.insert(id, key.clone());
         }
     }
 
@@ -264,12 +284,12 @@ mod tests {
             vin: "V1".into(),
             event_ts_ms: ts,
             ingest_ts_ms: ingest,
-            cell_temp_c: temp,
-            soc_pct: 50.0,
-            power_kw: 10.0,
-            energy_kwh: 1.0,
-            lat: 37.0,
-            lon: -122.0,
+            cell_temp_c: Some(temp),
+            soc_pct: Some(50.0),
+            power_kw: Some(10.0),
+            energy_kwh: Some(1.0),
+            lat: Some(37.0),
+            lon: Some(-122.0),
         }
     }
 
@@ -301,7 +321,37 @@ mod tests {
         let out = aggregate_all(&evs);
         assert_eq!(out.len(), 1);
         assert_eq!(out[0].events, 1);
-        assert_eq!(out[0].max_cell_temp_c, 30.0);
+        assert_eq!(out[0].max_cell_temp_c, Some(30.0));
+    }
+
+    #[test]
+    fn duplicates_are_dropped_across_windows_like_spark() {
+        let out = aggregate_all(&[ev("a", 0, 1_000, 30.0), ev("a", 400_000, 401_000, 40.0)]);
+        assert_eq!(out.len(), 1);
+        assert_eq!(out[0].window_start_ms, 0);
+    }
+
+    #[test]
+    fn null_measurements_are_counted_but_not_aggregated() {
+        let mut nulls = ev("b", 10, 1_010, 0.0);
+        nulls.cell_temp_c = None;
+        nulls.lat = None;
+        let out = aggregate_all(&[ev("a", 0, 1_000, 30.0), nulls]);
+        assert_eq!(out[0].events, 2);
+        assert_eq!(out[0].avg_cell_temp_c, Some(30.0));
+        assert_eq!(out[0].last_lat, None);
+        let only_nulls = Event {
+            cell_temp_c: None,
+            soc_pct: None,
+            power_kw: None,
+            energy_kwh: None,
+            lat: None,
+            lon: None,
+            ..ev("c", 0, 1_000, 0.0)
+        };
+        let w = &aggregate_all(&[only_nulls])[0];
+        assert_eq!(w.events, 1);
+        assert_eq!(serde_json::to_string(w).unwrap().matches(':').count(), 4);
     }
 
     #[test]
@@ -322,7 +372,8 @@ mod tests {
         st.process(&ev("z", 1_000_000, 1_000_000, 30.0));
         assert_eq!(st.closed.len(), 1);
         st.process(&ev("y", 10_000_000, 10_000_000, 30.0));
-        assert!(!st.closed.contains(&(0, "V1".into())));
+        assert!(!st.closed.contains_key(&(0, "V1".into())));
+        assert!(!st.ids.contains_key("a"));
     }
 
     #[test]

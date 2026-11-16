@@ -406,7 +406,9 @@ pub fn run(c: &Config) -> Res<()> {
                 .or_insert_with(|| PartitionState::new(c.emit_from_ms));
             match serde_json::from_slice::<Event>(payload) {
                 Ok(e) => {
-                    if e.cell_temp_c >= crate::agg::THERMAL_ALERT_C {
+                    if e.cell_temp_c
+                        .is_some_and(|t| t >= crate::agg::THERMAL_ALERT_C)
+                    {
                         log(LogFields {
                             msg: "hot sample",
                             vin_token: Some(vin_token(&e.vin, hmac_key)),

@@ -1,0 +1,7 @@
+{"vin":"5L1SYN0PARITY0001","window_start_ms":1792999800000,"window_end_ms":1793000100000,"events":1,"avg_cell_temp_c":30.0,"max_cell_temp_c":30.0,"min_soc_pct":50.0,"max_power_kw":100.0,"energy_kwh":0.0,"last_lat":0.0,"last_lon":-121.99,"thermal_alert":false}
+{"vin":"5L1SYN0PARITY0002","window_start_ms":1792999800000,"window_end_ms":1793000100000,"events":3,"avg_cell_temp_c":30.0,"max_cell_temp_c":30.0,"min_soc_pct":30.0,"max_power_kw":130.0,"energy_kwh":2.0,"thermal_alert":false}
+{"vin":"5L1SYN0PARITY0003","window_start_ms":1792999800000,"window_end_ms":1793000100000,"events":1,"avg_cell_temp_c":30.0,"max_cell_temp_c":30.0,"min_soc_pct":50.0,"max_power_kw":100.0,"energy_kwh":0.0,"last_lat":37.3,"last_lon":-122.3,"thermal_alert":false}
+{"vin":"5L1SYN0PARITY0004","window_start_ms":1792999800000,"window_end_ms":1793000100000,"events":1,"avg_cell_temp_c":30.0,"max_cell_temp_c":30.0,"min_soc_pct":50.0,"max_power_kw":100.0,"energy_kwh":0.0,"last_lat":37.4,"last_lon":-122.4,"thermal_alert":false}
+{"vin":"5L1SYN0PARITY0005","window_start_ms":1792999800000,"window_end_ms":1793000100000,"events":1}
+{"vin":"5L1SYN0PARITY0006","window_start_ms":1792999800000,"window_end_ms":1793000100000,"events":1,"min_soc_pct":50.0,"max_power_kw":100.0,"energy_kwh":0.0,"last_lat":37.5,"last_lon":-122.5}
+{"vin":"5L1SYN0PARITY0008","window_start_ms":1792999800000,"window_end_ms":1793000100000,"events":1,"avg_cell_temp_c":30.0,"max_cell_temp_c":30.0,"min_soc_pct":50.0,"max_power_kw":100.0,"energy_kwh":0.0,"last_lon":0.0,"thermal_alert":false}
