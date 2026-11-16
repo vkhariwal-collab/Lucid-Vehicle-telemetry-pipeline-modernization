@@ -17,4 +17,6 @@ channels:
   telemetry.battery.dlq.v1:
     description: Unparseable inputs. No location, no raw VIN (privacy rule P3). Retention 3 days.
   battery-agg-rs.changelog:
-    description: Compacted, transactional per-partition state snapshots (internal).
+    description: >
+      Compacted, transactional state (internal). Keys "<input>|<partition>|meta" and
+      "<input>|<partition>|<window_start_ms>|<vin>" (Open / Closed / tombstone). Contains VIN: restrict by ACL.

@@ -7,3 +7,4 @@ data:
   OUTPUT_TOPIC: "telemetry.battery-window-agg.v1.shadow"
   TRANSACTIONAL_ID: "battery-agg-rs-shadow-0"
   GROUP_ID: "battery-agg-rs-shadow"
+  CHANGELOG_TOPIC: "battery-agg-rs-shadow.changelog"   # never shared with the cutover instance

@@ -7,3 +7,10 @@ data:
   OUTPUT_TOPIC: "telemetry.battery-window-agg.v1"
   TRANSACTIONAL_ID: "battery-agg-rs-0"
   GROUP_ID: "battery-agg-rs"
+  CHANGELOG_TOPIC: "battery-agg-rs.changelog"
+  # Set at cutover to floor((Spark stop time - 15 min) / 5 min) * 5 min, in epoch ms. Rust then
+  # emits only windows starting at or after it (superseding Spark's last partial updates, TQ-05),
+  # and partitions without committed offsets start at that time minus START_LOOKBACK_MS.
+  # The placeholder is not a number, so the pod fails fast until it is set.
+  CUTOVER_EMIT_FROM_MS: "SET-AT-CUTOVER"
+  START_LOOKBACK_MS: "3600000"
