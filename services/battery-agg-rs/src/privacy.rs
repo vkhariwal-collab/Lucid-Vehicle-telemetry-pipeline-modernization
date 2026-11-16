@@ -19,7 +19,7 @@ pub fn round2_half_up(x: f64) -> f64 {
     };
     let (int_part, frac) = digits.split_once('.').unwrap_or((digits, ""));
     if frac.len() <= 2 {
-        return x;
+        return x + 0.0; // -0.0 + 0.0 == +0.0
     }
     let mut cents: i64 = format!("{int_part}{}", &frac[..2]).parse().unwrap_or(0);
     if frac.as_bytes()[2] >= b'5' {
@@ -27,7 +27,8 @@ pub fn round2_half_up(x: f64) -> f64 {
     }
     let v = cents as f64 / 100.0;
     let v: f64 = format!("{v:.2}").parse().unwrap_or(v);
-    if neg {
+    // BigDecimal has no negative zero: Spark writes round(-0.004, 2) as 0.0.
+    if neg && v != 0.0 {
         -v
     } else {
         v
@@ -113,7 +114,9 @@ mod tests {
         assert_eq!(round2_half_up(-121.985), -121.99);
         assert_eq!(round2_half_up(37.5449), 37.54);
         assert_eq!(round2_half_up(37.1), 37.1);
-        assert_eq!(round2_half_up(-0.004), -0.0);
+        assert!(round2_half_up(-0.004).is_sign_positive());
+        assert!(round2_half_up(-0.0).is_sign_positive());
+        assert_eq!(round2_half_up(-0.005), -0.01);
     }
 
     #[test]
@@ -127,7 +130,7 @@ mod tests {
 
     #[test]
     fn dlq_error_does_not_echo_values() {
-        let p = br#"{"event_id":"x","vin":"5L1SYN0EDGE000004","event_ts_ms":1,"ingest_ts_ms":1,"cell_temp_c":1,"soc_pct":1,"power_kw":1,"energy_kwh":1,"lat":"37.123456","lon":"5L1SYN0EDGE000004"}"#;
+        let p = br#"{"event_id":"x","vin":"5L1SYN0EDGE000004","event_ts_ms":"37.123456","ingest_ts_ms":1,"lat":37.123456}"#;
         let err = serde_json::from_slice::<crate::model::Event>(p).unwrap_err();
         assert!(err.to_string().contains("37.123456"));
         let r = dlq_record(p, &err, b"k");

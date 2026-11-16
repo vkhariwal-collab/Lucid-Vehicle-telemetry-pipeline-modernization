@@ -4,8 +4,11 @@ use battery_agg_rs::{
     model::{Event, WindowAgg},
 };
 
-fn close(a: f64, b: f64) -> bool {
-    (a - b).abs() <= 1e-9 * a.abs().max(b.abs()).max(1.0)
+fn close(a: Option<f64>, b: Option<f64>) -> bool {
+    match (a, b) {
+        (Some(a), Some(b)) => (a - b).abs() <= 1e-9 * a.abs().max(b.abs()).max(1.0),
+        (a, b) => a.is_none() && b.is_none(),
+    }
 }
 
 fn check(name: &str) {
@@ -41,12 +44,20 @@ fn check(name: &str) {
             .iter()
             .all(|(a, b)| close(*a, *b));
         assert!(ok, "{name}: mismatch\n got: {g:?}\nwant: {w:?}");
+        for x in [g.last_lat, g.last_lon].into_iter().flatten() {
+            assert!(x != 0.0 || x.is_sign_positive(), "{name}: -0.0 in output");
+        }
     }
 }
 
 #[test]
 fn golden_edge_cases() {
     check("edge_cases");
+}
+
+#[test]
+fn golden_spark_semantics() {
+    check("spark_semantics");
 }
 
 #[test]
