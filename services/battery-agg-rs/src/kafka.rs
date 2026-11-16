@@ -115,11 +115,15 @@ pub fn produce(c: &Config, path: &str) -> Res<()> {
         .lines()
         .filter(|l| !l.trim().is_empty())
     {
-        let key = serde_json::from_str::<serde_json::Value>(line)
-            .ok()
-            .and_then(|v| v.get("vin").and_then(|x| x.as_str()).map(String::from))
-            .unwrap_or_else(|| "malformed".into());
-        send(&p, &c.input, Some(&key), Some(line))?;
+        let v = serde_json::from_str::<serde_json::Value>(line).ok();
+        let field = |k: &str| v.as_ref().and_then(|v| v.get(k));
+        let key = field("vin")
+            .and_then(|x| x.as_str())
+            .unwrap_or("malformed")
+            .to_string();
+        // Record timestamp = ingest time, as the ingest gateway would write it.
+        let ts = field("ingest_ts_ms").and_then(|x| x.as_i64());
+        send_at(&p, &c.input, Some(&key), Some(line), ts)?;
         n += 1;
     }
     p.flush(Duration::from_secs(30))?;
@@ -464,7 +468,20 @@ pub fn run(c: &Config) -> Res<()> {
 /// Enqueues one record; waits only while the local queue is full. Any other error
 /// (e.g. message too large) is returned instead of being retried forever.
 fn send(p: &BaseProducer, topic: &str, key: Option<&str>, payload: Option<&str>) -> Res<()> {
+    send_at(p, topic, key, payload, None)
+}
+
+fn send_at(
+    p: &BaseProducer,
+    topic: &str,
+    key: Option<&str>,
+    payload: Option<&str>,
+    timestamp_ms: Option<i64>,
+) -> Res<()> {
     let mut rec: BaseRecord<str, str> = BaseRecord::to(topic);
+    if let Some(ts) = timestamp_ms {
+        rec = rec.timestamp(ts);
+    }
     if let Some(k) = key {
         rec = rec.key(k);
     }
