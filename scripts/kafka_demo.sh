@@ -3,7 +3,7 @@
 # mid-transaction, restart it, then verify the committed output against the Spark golden.
 set -uo pipefail
 BIN=services/battery-agg-rs/target/release/battery-agg-rs
-export KAFKA_BOOTSTRAP=${KAFKA_BOOTSTRAP:-localhost:9092}
+export KAFKA_BOOTSTRAP=${KAFKA_BOOTSTRAP:-localhost:9092} VIN_TOKEN_KEY=${VIN_TOKEN_KEY:-demo-only-key}
 RUN=$(date +%s)
 export INPUT_TOPIC=telemetry.battery.v1.$RUN OUTPUT_TOPIC=telemetry.battery-window-agg.v1.$RUN \
        CHANGELOG_TOPIC=battery-agg-rs.changelog.$RUN DLQ_TOPIC=telemetry.battery.dlq.v1.$RUN \

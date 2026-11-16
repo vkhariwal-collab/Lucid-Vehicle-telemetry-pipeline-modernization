@@ -6,6 +6,7 @@
 
 use hmac::{Hmac, Mac};
 use serde::Serialize;
+use serde_json::error::Category;
 use sha2::{Digest, Sha256};
 
 /// Rounds to 2 decimals with Spark's semantics: HALF_UP on the shortest decimal
@@ -60,8 +61,32 @@ pub fn log(f: LogFields) {
     eprintln!("{}", serde_json::to_string(&f).unwrap_or_default());
 }
 
+/// Parse-error description that is safe for the DLQ (P3). serde_json messages can echo the
+/// offending value (e.g. `invalid type: string "37.123456"`), so only the error category,
+/// position and our own schema field names are kept.
+pub fn safe_parse_error(e: &serde_json::Error) -> String {
+    let msg = e.to_string();
+    let schema_msg = ["missing field `", "unknown field `", "duplicate field `"]
+        .iter()
+        .find_map(|p| {
+            let rest = msg.strip_prefix(p)?;
+            let field = &rest[..rest.find('`')?];
+            Some(format!("{p}{field}`"))
+        });
+    let what = schema_msg.unwrap_or_else(|| {
+        match e.classify() {
+            Category::Io => "io error",
+            Category::Syntax => "syntax error",
+            Category::Data => "invalid value",
+            Category::Eof => "unexpected end of input",
+        }
+        .to_string()
+    });
+    format!("{what} at line {} column {}", e.line(), e.column())
+}
+
 /// Builds a dead-letter record for an unparseable payload (P3): no location, no raw VIN.
-pub fn dlq_record(payload: &[u8], error: &str, key: &[u8]) -> String {
+pub fn dlq_record(payload: &[u8], err: &serde_json::Error, key: &[u8]) -> String {
     let token = serde_json::from_slice::<serde_json::Value>(payload)
         .ok()
         .and_then(|v| {
@@ -70,7 +95,7 @@ pub fn dlq_record(payload: &[u8], error: &str, key: &[u8]) -> String {
                 .map(|vin| vin_token(vin, key))
         });
     serde_json::json!({
-        "error": error,
+        "error": safe_parse_error(err),
         "payload_sha256": hex::encode(Sha256::digest(payload)),
         "payload_len": payload.len(),
         "vin_token": token,
@@ -94,9 +119,23 @@ mod tests {
     #[test]
     fn dlq_has_no_location_or_raw_vin() {
         let p = br#"{"vin":"5L1SYN0EDGE000004","lat":37.123456,"lon":-122.1,"event_id":"x"}"#;
-        let r = dlq_record(p, "missing field", b"k");
+        let err = serde_json::from_slice::<crate::model::Event>(p).unwrap_err();
+        let r = dlq_record(p, &err, b"k");
         assert!(!r.contains("5L1SYN0EDGE000004") && !r.contains("37.12") && !r.contains("lat"));
-        assert!(r.contains("vin_token"));
+        assert!(r.contains("vin_token") && r.contains("missing field `event_ts_ms`"));
+    }
+
+    #[test]
+    fn dlq_error_does_not_echo_values() {
+        let p = br#"{"event_id":"x","vin":"5L1SYN0EDGE000004","event_ts_ms":1,"ingest_ts_ms":1,"cell_temp_c":1,"soc_pct":1,"power_kw":1,"energy_kwh":1,"lat":"37.123456","lon":"5L1SYN0EDGE000004"}"#;
+        let err = serde_json::from_slice::<crate::model::Event>(p).unwrap_err();
+        assert!(err.to_string().contains("37.123456"));
+        let r = dlq_record(p, &err, b"k");
+        assert!(
+            !r.contains("37.12") && !r.contains("5L1SYN0EDGE000004"),
+            "{r}"
+        );
+        assert!(r.contains("invalid value at line 1 column"));
     }
 
     #[test]

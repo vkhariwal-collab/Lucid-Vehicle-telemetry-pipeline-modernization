@@ -27,8 +27,8 @@ kafka-demo: up ## exactly-once under failure: crash mid-transaction, restart, ve
 	cd $(RS) && cargo build --release -q
 	./scripts/kafka_demo.sh
 
-k8s-validate:  ## schema-validate manifests (CRDs skipped)
-	kubeconform -strict -summary -ignore-missing-schemas -skip Kustomization deploy/k8s/base/*.yaml deploy/k8s/overlays/*/patch-*.yaml
+k8s-validate:  ## render base + every overlay with kustomize, then schema-validate (CRDs skipped)
+	@for d in deploy/k8s/base deploy/k8s/overlays/*; do echo "== $$d"; out=$$(kustomize build $$d) || exit 1; printf '%s\n' "$$out" | kubeconform -strict -summary -ignore-missing-schemas - || exit 1; done
 
 demo: rs-test parity-replay kafka-demo k8s-validate ## everything, in demo order
 	@echo "\nAll demo checks passed. Reports in reports/."

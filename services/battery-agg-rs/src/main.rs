@@ -4,17 +4,22 @@ use std::io::{BufRead, Write};
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
-    let cfg = kafka::Config::from_env();
+    let arg = |i: usize, usage: &str| -> kafka::Res<String> {
+        args.get(i).cloned().ok_or_else(|| usage.into())
+    };
     let r = match args.get(1).map(String::as_str) {
-        Some("replay") => replay(args.get(2).expect("replay <file.jsonl>")),
-        Some("setup") => kafka::setup(&cfg),
-        Some("produce") => kafka::produce(&cfg, args.get(2).expect("produce <file.jsonl>")),
-        Some("run") => kafka::run(&cfg),
-        Some("dump") => kafka::dump(
-            &cfg,
-            args.get(2).expect("dump <topic> <out>"),
-            args.get(3).expect("dump <topic> <out>"),
-        ),
+        Some("replay") => arg(2, "replay <file.jsonl>").and_then(|f| replay(&f)),
+        Some(cmd @ ("setup" | "produce" | "run" | "dump")) => {
+            kafka::Config::from_env().and_then(|cfg| match cmd {
+                "setup" => kafka::setup(&cfg),
+                "produce" => arg(2, "produce <file.jsonl>").and_then(|f| kafka::produce(&cfg, &f)),
+                "run" => kafka::run(&cfg),
+                _ => {
+                    let topic = arg(2, "dump <topic> <out>")?;
+                    kafka::dump(&cfg, &topic, &arg(3, "dump <topic> <out>")?)
+                }
+            })
+        }
         _ => {
             eprintln!("usage: battery-agg-rs replay <file> | setup | produce <file> | run | dump <topic> <out>");
             std::process::exit(2)
